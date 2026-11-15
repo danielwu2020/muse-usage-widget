@@ -22,6 +22,29 @@ async function fetchUsage(): Promise<any> {
   return r.json()
 }
 
+// 把 "Nov 19 at 12:02 PM CST" 转成中文 "11月19日 中午12:02"。
+// 解析不到就原样返回，不报错。
+const MONTHS: Record<string, number> = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 }
+
+function formatReset(s: string): string {
+  const m = s.match(/(\w{3}) (\d+) at (\d+):(\d+) (AM|PM)/)
+  if (!m) return s
+  const month = MONTHS[m[1]] || 0
+  const day = m[2]
+  const hour = parseInt(m[3], 10)
+  const min = m[4]
+  const ampm = m[5]
+  let period = ""
+  if (ampm === "AM") {
+    period = hour < 6 ? "凌晨" : "上午"
+  } else {
+    if (hour === 12) period = "中午"
+    else if (hour < 6) period = "下午"
+    else period = "晚上"
+  }
+  return month + "月" + day + "日 " + period + hour + ":" + min
+}
+
 function WidgetView({ data }: { data: any }) {
   if (!data) {
     return (
@@ -45,7 +68,7 @@ function WidgetView({ data }: { data: any }) {
       <Text styledText={{ font: "largeTitle", bold: true, foregroundColor: usageColor(pct), content: pct + "%" }} />
       <Text font="caption">本周免费额度已用</Text>
       <Spacer />
-      <Text font="caption">重置：{data.weeklyReset}</Text>
+      <Text font="caption">重置：{formatReset(data.weeklyReset)}</Text>
       <Text font="caption">额外 token：{data.extraLeft} 剩余（{data.extraUsed}% 已用）</Text>
       <Button intent={RefreshUsageIntent(undefined)}>
         <HStack>
