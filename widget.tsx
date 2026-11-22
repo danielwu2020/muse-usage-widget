@@ -1,25 +1,18 @@
 // Muse 用量小组件（widget.tsx）
 // 显示本周免费额度用了百分之几、什么时候重置、额外 token 还剩多少。
-// 数据来自 https://muse.562156080.workers.dev/（Noah 的 Worker）。
+// 数据来自自己的 Cloudflare Worker。
 // 点“刷新”按钮重新抓一次。数据每 10 分钟自动刷新。
 // 和 app_intents.tsx 放同一个项目。先把 widget.tsx 里原来的内容全删掉，再导入这一份。
 
 import { HStack, VStack, Spacer, Text, Image, Button, Script, Widget } from "scripting"
 import { RefreshUsageIntent } from "./app_intents"
-
-const USAGE_URL = "https://muse.562156080.workers.dev/"
+import { READ_TOKEN_KEY, requestUsage } from "./usage"
 
 function usageColor(pct: number): "systemGreen" | "systemYellow" | "orange" | "systemRed" {
   if (pct <= 50) return "systemGreen"
   if (pct <= 80) return "systemYellow"
   if (pct <= 95) return "orange"
   return "systemRed"
-}
-
-async function fetchUsage(): Promise<any> {
-  const r = await fetch(USAGE_URL, { timeout: 10 })
-  if (!r.ok) throw new Error("HTTP " + r.status)
-  return r.json()
 }
 
 // 把 "Nov 19 at 12:02 PM CST" 转成中文 "11月19日 中午12:02"。
@@ -45,12 +38,12 @@ function formatReset(s: string): string {
   return month + "月" + day + "日 " + period + hour + ":" + min
 }
 
-function WidgetView({ data }: { data: any }) {
+function WidgetView({ data, needsSetup }: { data: any; needsSetup: boolean }) {
   if (!data) {
     return (
       <VStack>
         <Text font="headline" fontWeight={"bold"}>Muse 用量</Text>
-        <Text font="caption">读取失败，点刷新重试</Text>
+        <Text font="caption">{needsSetup ? "请在 Scripting 中打开脚本，设置只读密钥" : "读取失败，点刷新重试"}</Text>
         <Spacer />
         <Button intent={RefreshUsageIntent(undefined)}>
           <HStack>
@@ -82,8 +75,11 @@ function WidgetView({ data }: { data: any }) {
 
 async function main() {
   try {
-    const data = await fetchUsage().catch(() => null)
-    Widget.present(<WidgetView data={data} />, {
+    const token = Keychain.get(READ_TOKEN_KEY)
+    const response = token ? await requestUsage(token).catch(() => null) : null
+    const data = response?.ok ? await response.json().catch(() => null) : null
+    const needsSetup = !token || response?.status === 401
+    Widget.present(<WidgetView data={data} needsSetup={needsSetup} />, {
       policy: "after",
       date: new Date(Date.now() + 10 * 60 * 1000),
     })

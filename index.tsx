@@ -1,15 +1,30 @@
 // Muse 用量（index.tsx）
-// 点开 App 看用量。数据来自 https://muse.562156080.workers.dev/。
+// 点开 App 看用量。数据来自自己的 Cloudflare Worker。
 // 注意：小组件的代码要放在 widget.tsx 里，不是这个文件。
 
-import { Navigation, NavigationStack, VStack, Spacer, Text, Script } from "scripting"
+import { Navigation, NavigationStack, VStack, Spacer, Text, Script, Widget } from "scripting"
+import { READ_TOKEN_KEY, requestUsage } from "./usage"
 
-const USAGE_URL = "https://muse.562156080.workers.dev/"
+async function configureReadToken() {
+  const token = (await Dialog.prompt({
+    title: "配置 Muse 用量",
+    message: "请输入小组件的只读密钥。",
+    obscureText: true,
+  }))?.trim()
+  if (!token) return null
 
-async function fetchUsage(): Promise<any> {
-  const r = await fetch(USAGE_URL, { timeout: 10 })
-  if (!r.ok) throw new Error("HTTP " + r.status)
-  return r.json()
+  const response = await requestUsage(token).catch(() => null)
+  if (response?.status !== 404 && !response?.ok) {
+    const message = response?.status === 401 ? "只读密钥无效，请重新打开脚本再试。" : "无法连接用量服务，请稍后重试。"
+    await Dialog.alert({ title: "设置失败", message })
+    return null
+  }
+  if (!Keychain.set(READ_TOKEN_KEY, token)) {
+    await Dialog.alert({ title: "设置失败", message: "无法将只读密钥保存到钥匙串。" })
+    return null
+  }
+  Widget.reloadAll()
+  return response
 }
 
 // 把 "Nov 19 at 12:02 PM CST" 转成中文 "11月19日 中午12:02"。
@@ -65,9 +80,15 @@ function App({ data }: { data: any }) {
 }
 
 async function run() {
-  const data = await fetchUsage().catch(() => null)
-  await Navigation.present({ element: <App data={data} />, modalPresentationStyle: "pageSheet" })
-  Script.exit()
+  try {
+    const token = Keychain.get(READ_TOKEN_KEY)
+    let response = token ? await requestUsage(token).catch(() => null) : null
+    if (!token || response?.status === 401) response = await configureReadToken()
+    const data = response?.ok ? await response.json().catch(() => null) : null
+    await Navigation.present({ element: <App data={data} />, modalPresentationStyle: "pageSheet" })
+  } finally {
+    Script.exit()
+  }
 }
 
 run()
